@@ -137,7 +137,28 @@ $env:POLLEN_DB_PATH = "D:\backup\pollen_data.db"
 python main.py
 ```
 
-Il percorso che sta usando in quel momento è scritto in basso nella finestra.
+Il percorso che sta usando in quel momento è scritto in basso nella finestra,
+accanto ai pulsanti di backup.
+
+### Backup e ripristino dall'app
+
+In fondo alla finestra ci sono due pulsanti:
+
+- **💾 Esporta backup** salva una copia completa dei dati in un file `.db` a
+  tua scelta (utile prima di un aggiornamento, o per portarli su un altro PC).
+- **↩ Ripristina backup** sostituisce i dati attuali con quelli di un file di
+  backup. Chiede conferma prima di procedere e rifiuta i file che non sono
+  backup validi.
+
+### Aggiornare l'app senza perdere i dati
+
+I dati non stanno dentro l'eseguibile ma nel file qui sopra, quindi per passare
+a una versione nuova basta sostituire `PolliniSintomi.exe` (o aggiornare il
+sorgente): la nuova versione riapre lo stesso file e ritrovi tutto. Se una
+versione futura cambia la struttura del database, l'app la aggiorna da sola al
+primo avvio (migrazioni basate su `PRAGMA user_version`) senza toccare i dati
+già inseriti. Per sicurezza, prima di un aggiornamento importante puoi sempre
+fare un'esportazione di backup.
 
 ## I file del progetto
 

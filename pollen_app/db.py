@@ -11,6 +11,53 @@ import sqlite3
 from datetime import datetime
 from pathlib import Path
 
+# Versione corrente dello schema. Aumentala di 1 ogni volta che aggiungi una
+# nuova voce in _MIGRATIONS, così le versioni future dell'app aggiornano da sole
+# i database degli utenti senza perdere i dati già inseriti.
+SCHEMA_VERSION = 1
+
+# Schema di base (versione 1). Tutte le CREATE sono "IF NOT EXISTS" così la
+# migrazione è sicura sia su un database nuovo sia su uno preesistente.
+_SCHEMA_V1 = """
+    CREATE TABLE IF NOT EXISTS days (
+        date       TEXT PRIMARY KEY,   -- formato YYYY-MM-DD
+        updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS pollen (
+        date  TEXT NOT NULL,
+        plant TEXT NOT NULL,
+        level INTEGER NOT NULL,         -- 0..3
+        PRIMARY KEY (date, plant),
+        FOREIGN KEY (date) REFERENCES days(date) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS symptoms (
+        date    TEXT NOT NULL,
+        symptom TEXT NOT NULL,
+        level   INTEGER NOT NULL,       -- 0..5
+        PRIMARY KEY (date, symptom),
+        FOREIGN KEY (date) REFERENCES days(date) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS settings (
+        key   TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+    );
+"""
+
+
+def _migration_1(conn: sqlite3.Connection) -> None:
+    conn.executescript(_SCHEMA_V1)
+
+
+# Mappa: numero di versione -> funzione che porta lo schema a quella versione.
+# Per evolvere il database in futuro (es. aggiungere una colonna) aggiungi qui
+# _migration_2, _migration_3, ... e incrementa SCHEMA_VERSION.
+_MIGRATIONS = {
+    1: _migration_1,
+}
+
 
 def default_db_path() -> Path:
     """Percorso predefinito del database.
@@ -32,39 +79,22 @@ class Database:
         # check_same_thread=False non serve: tutto gira sul thread della UI.
         self.conn = sqlite3.connect(self.path)
         self.conn.execute("PRAGMA foreign_keys = ON")
-        self._init_schema()
+        self._migrate()
 
-    def _init_schema(self) -> None:
-        cur = self.conn.cursor()
-        cur.executescript(
-            """
-            CREATE TABLE IF NOT EXISTS days (
-                date       TEXT PRIMARY KEY,   -- formato YYYY-MM-DD
-                updated_at TEXT NOT NULL
-            );
-
-            CREATE TABLE IF NOT EXISTS pollen (
-                date  TEXT NOT NULL,
-                plant TEXT NOT NULL,
-                level INTEGER NOT NULL,         -- 0..3
-                PRIMARY KEY (date, plant),
-                FOREIGN KEY (date) REFERENCES days(date) ON DELETE CASCADE
-            );
-
-            CREATE TABLE IF NOT EXISTS symptoms (
-                date    TEXT NOT NULL,
-                symptom TEXT NOT NULL,
-                level   INTEGER NOT NULL,       -- 0..5
-                PRIMARY KEY (date, symptom),
-                FOREIGN KEY (date) REFERENCES days(date) ON DELETE CASCADE
-            );
-
-            CREATE TABLE IF NOT EXISTS settings (
-                key   TEXT PRIMARY KEY,
-                value TEXT NOT NULL
-            );
-            """
-        )
+    def _migrate(self) -> None:
+        """Porta lo schema del database alla versione corrente applicando, in
+        ordine, solo le migrazioni mancanti. La versione è memorizzata nel file
+        stesso tramite PRAGMA user_version, così l'aggiornamento è automatico e
+        i dati esistenti vengono preservati."""
+        current = self.conn.execute("PRAGMA user_version").fetchone()[0]
+        if current >= SCHEMA_VERSION:
+            return
+        for version in range(current + 1, SCHEMA_VERSION + 1):
+            migration = _MIGRATIONS.get(version)
+            if migration is not None:
+                migration(self.conn)
+            # user_version non accetta parametri: l'intero è validato da range().
+            self.conn.execute(f"PRAGMA user_version = {int(version)}")
         self.conn.commit()
 
     # --- Impostazioni (coppie chiave/valore) ---------------------------------
@@ -166,6 +196,41 @@ class Database:
             if date in data:
                 data[date]["symptoms"][sym] = level
         return data
+
+    # --- Backup / ripristino -------------------------------------------------
+    def backup_to(self, dest_path) -> None:
+        """Salva una copia completa e coerente del database nel file indicato,
+        usando l'API di backup di SQLite (sicura anche con il db in uso)."""
+        dest = sqlite3.connect(str(dest_path))
+        try:
+            with dest:
+                self.conn.backup(dest)
+        finally:
+            dest.close()
+
+    def restore_from(self, src_path) -> None:
+        """Sostituisce TUTTI i dati attuali con quelli del file indicato.
+
+        Solleva ValueError se il file non è un backup valido dell'app. Dopo il
+        ripristino riallinea lo schema, nel caso il backup provenga da una
+        versione più vecchia.
+        """
+        src = sqlite3.connect(str(src_path))
+        try:
+            valid = src.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='days'"
+            ).fetchone()
+            if not valid:
+                raise ValueError(
+                    "Il file selezionato non è un backup di Pollini & Sintomi."
+                )
+            self.conn.commit()  # evita transazioni aperte sul target
+            src.backup(self.conn)
+        except sqlite3.DatabaseError as exc:
+            raise ValueError("Il file selezionato non è un database valido.") from exc
+        finally:
+            src.close()
+        self._migrate()
 
     def close(self) -> None:
         self.conn.close()
