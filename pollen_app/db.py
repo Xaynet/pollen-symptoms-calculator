@@ -125,6 +125,12 @@ class Database:
         # check_same_thread=False non serve: tutto gira sul thread della UI.
         self.conn = sqlite3.connect(self.path)
         self.conn.execute("PRAGMA foreign_keys = ON")
+        self.conn.execute("PRAGMA journal_mode=WAL")
+        self.conn.execute("PRAGMA synchronous=NORMAL")
+        # Contatore che cambia a ogni modifica dei dati. Permette alle viste
+        # (es. Analisi) di mettere in cache i risultati e ricalcolarli solo
+        # quando qualcosa è davvero cambiato.
+        self.data_version = 0
         self._migrate()
 
     def _migrate(self) -> None:
@@ -199,10 +205,12 @@ class Database:
             [(date, s, lv) for s, lv in symptoms.items() if lv > 0],
         )
         self.conn.commit()
+        self.data_version += 1
 
     def delete_day(self, date: str) -> None:
         self.conn.execute("DELETE FROM days WHERE date = ?", (date,))
         self.conn.commit()
+        self.data_version += 1
 
     # --- Lettura -------------------------------------------------------------
     def is_compiled(self, date: str) -> bool:
@@ -241,18 +249,13 @@ class Database:
         """
         prefix = f"{year:04d}-{month:02d}-"
         result: dict[str, dict] = {}
-        for (date,) in self.conn.execute(
-            "SELECT date FROM days WHERE date LIKE ?", (prefix + "%",)
-        ):
-            result[date] = {"max_symptom": 0, "total_symptom": 0}
-        for date, mx, tot in self.conn.execute(
-            "SELECT date, MAX(level), SUM(level) FROM symptoms "
-            "WHERE date LIKE ? GROUP BY date",
+        for dt, mx, tot in self.conn.execute(
+            "SELECT d.date, COALESCE(MAX(s.level), 0), COALESCE(SUM(s.level), 0) "
+            "FROM days d LEFT JOIN symptoms s ON d.date = s.date "
+            "WHERE d.date LIKE ? GROUP BY d.date",
             (prefix + "%",),
         ):
-            if date in result:
-                result[date]["max_symptom"] = mx or 0
-                result[date]["total_symptom"] = tot or 0
+            result[dt] = {"max_symptom": mx, "total_symptom": tot}
         return result
 
     def all_days(self) -> list[str]:
@@ -310,6 +313,7 @@ class Database:
         finally:
             src.close()
         self._migrate()
+        self.data_version += 1
 
     def close(self) -> None:
         self.conn.close()

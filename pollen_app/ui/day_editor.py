@@ -43,7 +43,10 @@ class DayEditor(ctk.CTkFrame):
         # _build_body distrugge e ricrea il CTkScrollableFrame.
         self._body_container = ctk.CTkFrame(self, fg_color="transparent")
         self._body_container.pack(fill="both", expand=True)
-        self._build_body(self.saved_pollen, self.saved_symptoms, self.saved_particulate)
+        # Defer: l'header (con Indietro e Salva) viene renderizzato subito,
+        # poi il corpo (180+ widget interni) viene costruito al tick successivo.
+        self.after(0, self._build_body,
+                   self.saved_pollen, self.saved_symptoms, self.saved_particulate)
 
     # --- intestazione --------------------------------------------------------
     def _build_header(self):

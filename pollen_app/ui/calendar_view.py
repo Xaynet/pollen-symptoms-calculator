@@ -19,11 +19,13 @@ class CalendarView(ctk.CTkFrame):
         today = date.today()
         self.year = today.year
         self.month = today.month
+        self._day_buttons: list[ctk.CTkButton] = []
 
         self._build_header()
         self._build_legend()
         self.grid_container = ctk.CTkFrame(self, fg_color=theme.BG)
         self.grid_container.pack(fill="both", expand=True, padx=24, pady=(4, 12))
+        self._create_grid_structure()
         self._render_grid()
 
     # --- intestazione --------------------------------------------------------
@@ -83,54 +85,67 @@ class CalendarView(ctk.CTkFrame):
                      text_color=theme.TEXT_MUTED).pack(side="left")
 
     # --- griglia -------------------------------------------------------------
-    def _render_grid(self):
-        for w in self.grid_container.winfo_children():
-            w.destroy()
-
+    def _create_grid_structure(self):
+        """Crea una volta sola le 42 celle e le intestazioni della settimana."""
         for col in range(7):
             self.grid_container.grid_columnconfigure(col, weight=1, uniform="day")
 
-        # intestazioni giorni della settimana
         for col, name in enumerate(WEEKDAYS_SHORT):
             ctk.CTkLabel(
                 self.grid_container, text=name, font=theme.FONT_H2,
                 text_color=theme.GREEN_DARK,
             ).grid(row=0, column=col, pady=(0, 6), sticky="n")
 
+        for i in range(42):
+            r, col = divmod(i, 7)
+            btn = ctk.CTkButton(
+                self.grid_container, text="",
+                font=theme.FONT_DAY, fg_color=theme.DAY_EMPTY,
+                text_color=theme.DAY_EMPTY_TEXT, hover_color=theme.SURFACE_ALT,
+                corner_radius=10, border_width=1, border_color=theme.BORDER,
+            )
+            btn.grid(row=r + 1, column=col, padx=4, pady=4, sticky="nsew")
+            btn.grid_remove()
+            self._day_buttons.append(btn)
+
+    def _render_grid(self):
+        """Aggiorna i bottoni esistenti senza distruggerli."""
         summary = self.db.month_summary(self.year, self.month)
         today_iso = date.today().isoformat()
-        cal = calendar.Calendar(firstweekday=0)  # 0 = lunedì
+        cal = calendar.Calendar(firstweekday=0)
+        weeks = cal.monthdayscalendar(self.year, self.month)
 
-        for r, week in enumerate(cal.monthdayscalendar(self.year, self.month), start=1):
-            self.grid_container.grid_rowconfigure(r, weight=1, uniform="wk")
+        for r in range(1, 7):
+            if r <= len(weeks):
+                self.grid_container.grid_rowconfigure(r, weight=1, uniform="wk", minsize=0)
+            else:
+                self.grid_container.grid_rowconfigure(r, weight=0, uniform="", minsize=0)
+
+        grid = [[0] * 7 for _ in range(6)]
+        for r, week in enumerate(weeks):
             for col, day in enumerate(week):
-                if day == 0:
-                    continue
+                grid[r][col] = day
+
+        for idx, btn in enumerate(self._day_buttons):
+            r, col = divmod(idx, 7)
+            day = grid[r][col]
+            if day:
                 iso = f"{self.year:04d}-{self.month:02d}-{day:02d}"
                 info = summary.get(iso)
-                if info is not None:
-                    bg = theme.severity_color(info["max_symptom"])
-                    fg = theme.TEXT
-                    border = theme.BORDER
-                else:
-                    bg = theme.DAY_EMPTY
-                    fg = theme.DAY_EMPTY_TEXT
-                    border = theme.BORDER
-
+                bg = theme.severity_color(info["max_symptom"]) if info else theme.DAY_EMPTY
+                fg = theme.TEXT if info else theme.DAY_EMPTY_TEXT
                 is_today = iso == today_iso
-                btn = ctk.CTkButton(
-                    self.grid_container,
+                btn.configure(
                     text=str(day),
-                    font=theme.FONT_DAY,
                     fg_color=bg,
                     text_color=fg,
-                    hover_color=theme.SURFACE_ALT,
-                    corner_radius=10,
                     border_width=3 if is_today else 1,
-                    border_color=theme.GREEN if is_today else border,
+                    border_color=theme.GREEN if is_today else theme.BORDER,
                     command=lambda d=iso: self.controller.show_editor(d),
                 )
-                btn.grid(row=r, column=col, padx=4, pady=4, sticky="nsew")
+                btn.grid(row=r + 1, column=col, padx=4, pady=4, sticky="nsew")
+            else:
+                btn.grid_remove()
 
     # --- navigazione ---------------------------------------------------------
     def _prev_month(self):

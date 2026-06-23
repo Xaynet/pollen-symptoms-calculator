@@ -4,7 +4,7 @@ sintomi e i suggerimenti generati dai dati raccolti."""
 import customtkinter as ctk
 
 from .. import theme
-from ..analysis import analyze, build_suggestions, correlation_label
+from ..analysis import build_suggestions, correlation_label
 
 
 class AnalysisView(ctk.CTkFrame):
@@ -14,7 +14,22 @@ class AnalysisView(ctk.CTkFrame):
         self.db = controller.db
 
         self._build_header()
-        result = analyze(self.db.load_all())
+        # Placeholder mostrato subito; il calcolo (potenzialmente pesante con
+        # molti dati) parte al tick successivo, così l'header compare senza attesa.
+        self._loading = ctk.CTkLabel(
+            self, text="Calcolo dell'analisi in corso…", font=theme.FONT_NORMAL,
+            text_color=theme.TEXT_MUTED,
+        )
+        self._loading.pack(pady=40)
+        self.after(0, self._compute_and_build)
+
+    def _compute_and_build(self):
+        if not self.winfo_exists():
+            return
+        result = self.controller.get_analysis()
+        if not self.winfo_exists():
+            return
+        self._loading.destroy()
         self._build_body(result)
 
     def _build_header(self):

@@ -6,6 +6,7 @@ from tkinter import filedialog, messagebox
 import customtkinter as ctk
 
 from . import theme
+from .analysis import analyze
 from .db import Database
 from .ui.analysis_view import AnalysisView
 from .ui.calendar_view import CalendarView
@@ -54,24 +55,43 @@ class App(ctk.CTk):
         self.statusbar.pack(side="left", fill="x", expand=True)
 
         self.current_view = None
+        self._calendar_cache: "CalendarView | None" = None
+        self._analysis_cache = None
+        self._analysis_cache_version = -1
         self.show_calendar()
 
         self.protocol("WM_DELETE_WINDOW", self._on_close)
 
     def _swap(self, view):
-        if self.current_view is not None:
-            self.current_view.destroy()
+        if self.current_view is not None and self.current_view is not view:
+            if self.current_view is self._calendar_cache:
+                self.current_view.pack_forget()
+            else:
+                self.current_view.destroy()
         self.current_view = view
         view.pack(fill="both", expand=True)
 
     def show_calendar(self):
-        self._swap(CalendarView(self.container, self))
+        if self._calendar_cache is None or not self._calendar_cache.winfo_exists():
+            self._calendar_cache = CalendarView(self.container, self)
+        else:
+            self._calendar_cache._render_grid()
+        self._swap(self._calendar_cache)
 
     def show_editor(self, date_iso: str):
         self._swap(DayEditor(self.container, self, date_iso))
 
     def show_analysis(self):
         self._swap(AnalysisView(self.container, self))
+
+    def get_analysis(self) -> dict:
+        """Risultato dell'analisi, ricalcolato solo se i dati sono cambiati
+        dall'ultima volta (vedi Database.data_version)."""
+        version = self.db.data_version
+        if self._analysis_cache is None or self._analysis_cache_version != version:
+            self._analysis_cache = analyze(self.db.load_all())
+            self._analysis_cache_version = version
+        return self._analysis_cache
 
     # --- backup / ripristino -------------------------------------------------
     def _export_backup(self):
@@ -112,6 +132,10 @@ class App(ctk.CTk):
         except Exception as exc:  # noqa: BLE001
             messagebox.showerror("Ripristino non riuscito", str(exc))
             return
+        if self._calendar_cache and self._calendar_cache.winfo_exists():
+            self._calendar_cache.destroy()
+        self._calendar_cache = None
+        self.current_view = None
         self.show_calendar()  # ricarica la vista con i dati ripristinati
         messagebox.showinfo("Ripristino completato", "I dati sono stati ripristinati dal backup.")
 
