@@ -86,23 +86,31 @@ class AnalysisView(ctk.CTkFrame):
                      text_color=theme.TEXT_MUTED, anchor="w").grid(
             row=0, column=1, sticky="w", padx=8, pady=(10, 0))
 
-        # Barra proporzionale all'aumento di sintomi nei giorni "polline alto"
+        # Barra proporzionale al segnale che rende sospetta la pianta:
+        # la forza della correlazione se disponibile (criterio di ordinamento),
+        # altrimenti l'aumento di sintomi nei giorni con polline alto.
+        if r["corr"] is not None and r["corr"] > 0:
+            frac = min(1.0, r["corr"])
+        elif r["delta"] is not None and max_delta:
+            frac = max(0.0, min(1.0, r["delta"] / max_delta))
+        else:
+            frac = None
+
+        if frac is not None:
+            pbar = ctk.CTkProgressBar(
+                card, height=12, corner_radius=6,
+                fg_color=theme.SURFACE_ALT, progress_color=theme.GREEN,
+            )
+            pbar.grid(row=1, column=0, columnspan=2, sticky="ew", padx=14, pady=(4, 4))
+            pbar.set(frac)
+
         if r["delta"] is not None:
-            frac = max(0.0, min(1.0, r["delta"] / max_delta)) if max_delta else 0.0
-            bar_bg = ctk.CTkFrame(card, fg_color=theme.SURFACE_ALT, height=14,
-                                  corner_radius=7)
-            bar_bg.grid(row=1, column=0, columnspan=2, sticky="ew", padx=14, pady=(4, 4))
-            bar_bg.grid_propagate(False)
-            bar_bg.grid_columnconfigure(0, weight=0)
-            fill = ctk.CTkFrame(bar_bg, fg_color=theme.GREEN, height=14, corner_radius=7,
-                                width=max(6, int(frac * 720)))
-            fill.grid(row=0, column=0, sticky="w")
             detail = (
                 f"sintomi medi {r['avg_high']:.1f} con polline alto "
                 f"({r['days_high']} gg) vs {r['avg_low']:.1f} negli altri"
             )
         else:
-            detail = f"registrato in {r['days_recorded']} giorni"
+            detail = f"registrato in {r['days_recorded']} giorni (mai a livello Medio/Alto)"
         ctk.CTkLabel(card, text=detail, font=theme.FONT_SMALL,
                      text_color=theme.TEXT_MUTED, anchor="w").grid(
             row=2, column=0, columnspan=2, sticky="w", padx=14, pady=(0, 10))
