@@ -14,7 +14,7 @@ from pathlib import Path
 # Versione corrente dello schema. Aumentala di 1 ogni volta che aggiungi una
 # nuova voce in _MIGRATIONS, così le versioni future dell'app aggiornano da sole
 # i database degli utenti senza perdere i dati già inseriti.
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 # Schema di base (versione 1). Tutte le CREATE sono "IF NOT EXISTS" così la
 # migrazione è sicura sia su un database nuovo sia su uno preesistente.
@@ -75,12 +75,33 @@ def _migration_2(conn: sqlite3.Connection) -> None:
             )
 
 
+def _migration_3(conn: sqlite3.Connection) -> None:
+    """Aggiunge la tabella delle polveri/particolato (PM10, PM2.5).
+
+    Non serve alcun backfill: i giorni precedenti non avevano dati sulle polveri,
+    quindi restano "non valutati" per quella categoria e non influenzano le
+    statistiche (coerente con il comportamento del filtro pollini).
+    """
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS particulate (
+            date  TEXT NOT NULL,
+            kind  TEXT NOT NULL,
+            level INTEGER NOT NULL,         -- 0..3
+            PRIMARY KEY (date, kind),
+            FOREIGN KEY (date) REFERENCES days(date) ON DELETE CASCADE
+        );
+        """
+    )
+
+
 # Mappa: numero di versione -> funzione che porta lo schema a quella versione.
 # Per evolvere il database in futuro (es. aggiungere una colonna) aggiungi qui
-# _migration_3, ... e incrementa SCHEMA_VERSION.
+# _migration_4, ... e incrementa SCHEMA_VERSION.
 _MIGRATIONS = {
     1: _migration_1,
     2: _migration_2,
+    3: _migration_3,
 }
 
 
@@ -137,14 +158,21 @@ class Database:
         self.conn.commit()
 
     # --- Scrittura -----------------------------------------------------------
-    def save_day(self, date: str, pollen: dict[str, int], symptoms: dict[str, int]) -> None:
+    def save_day(
+        self,
+        date: str,
+        pollen: dict[str, int],
+        symptoms: dict[str, int],
+        particulate: dict[str, int] | None = None,
+    ) -> None:
         """Salva (o aggiorna) un giorno.
 
-        `pollen` contiene SOLO le piante effettivamente valutate (quelle mostrate
-        nell'editor). Vengono memorizzate tutte, anche a livello 0 ("Assente
-        valutato"), tramite upsert e SENZA cancellare le piante non passate: così,
-        con il filtro "solo Open-Meteo" attivo, le altre piante restano "non
-        valutate" per quel giorno (riga assente) e non influenzano le statistiche.
+        `pollen` e `particulate` contengono SOLO le voci effettivamente valutate
+        (quelle mostrate nell'editor). Vengono memorizzate tutte, anche a livello
+        0 ("Assente valutato"), tramite upsert e SENZA cancellare le voci non
+        passate: così, con il filtro "solo Open-Meteo" attivo, le piante nascoste
+        restano "non valutate" per quel giorno (riga assente) e non influenzano le
+        statistiche.
 
         I sintomi sono sempre tutti presenti nell'editor, quindi li riscriviamo da
         zero memorizzando solo quelli > 0 (l'assenza di riga = "Assente").
@@ -159,6 +187,11 @@ class Database:
             "INSERT INTO pollen(date, plant, level) VALUES(?, ?, ?) "
             "ON CONFLICT(date, plant) DO UPDATE SET level=excluded.level",
             [(date, p, lv) for p, lv in pollen.items()],
+        )
+        cur.executemany(
+            "INSERT INTO particulate(date, kind, level) VALUES(?, ?, ?) "
+            "ON CONFLICT(date, kind) DO UPDATE SET level=excluded.level",
+            [(date, k, lv) for k, lv in (particulate or {}).items()],
         )
         cur.execute("DELETE FROM symptoms WHERE date = ?", (date,))
         cur.executemany(
@@ -176,8 +209,12 @@ class Database:
         cur = self.conn.execute("SELECT 1 FROM days WHERE date = ?", (date,))
         return cur.fetchone() is not None
 
-    def get_day(self, date: str) -> tuple[dict[str, int], dict[str, int]]:
-        """Restituisce (pollini, sintomi) per un giorno; livelli mancanti = 0."""
+    def get_day(self, date: str) -> tuple[dict[str, int], dict[str, int], dict[str, int]]:
+        """Restituisce (pollini, sintomi, polveri) per un giorno.
+
+        Le voci presenti nei dizionari sono quelle valutate (anche a livello 0);
+        l'assenza di una chiave significa "non valutato".
+        """
         pollen = {
             row[0]: row[1]
             for row in self.conn.execute(
@@ -190,7 +227,13 @@ class Database:
                 "SELECT symptom, level FROM symptoms WHERE date = ?", (date,)
             )
         }
-        return pollen, symptoms
+        particulate = {
+            row[0]: row[1]
+            for row in self.conn.execute(
+                "SELECT kind, level FROM particulate WHERE date = ?", (date,)
+            )
+        }
+        return pollen, symptoms, particulate
 
     def month_summary(self, year: int, month: int) -> dict[str, dict]:
         """Per ogni giorno compilato del mese restituisce un riepilogo:
@@ -217,10 +260,10 @@ class Database:
 
     def load_all(self) -> dict[str, dict]:
         """Carica tutti i dati per l'analisi:
-        {'YYYY-MM-DD': {'pollen': {pianta: lv}, 'symptoms': {sintomo: lv}}}.
+        {'YYYY-MM-DD': {'pollen': {..}, 'symptoms': {..}, 'particulate': {..}}}.
         """
         data: dict[str, dict] = {
-            d: {"pollen": {}, "symptoms": {}} for d in self.all_days()
+            d: {"pollen": {}, "symptoms": {}, "particulate": {}} for d in self.all_days()
         }
         for date, plant, level in self.conn.execute("SELECT date, plant, level FROM pollen"):
             if date in data:
@@ -228,6 +271,9 @@ class Database:
         for date, sym, level in self.conn.execute("SELECT date, symptom, level FROM symptoms"):
             if date in data:
                 data[date]["symptoms"][sym] = level
+        for date, kind, level in self.conn.execute("SELECT date, kind, level FROM particulate"):
+            if date in data:
+                data[date]["particulate"][kind] = level
         return data
 
     # --- Backup / ripristino -------------------------------------------------

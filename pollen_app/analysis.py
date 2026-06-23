@@ -8,7 +8,13 @@ per mantenere l'app leggera.
 
 from math import sqrt
 
-from .constants import PLANTS, SYMPTOMS, display_name
+from .constants import (
+    PARTICULATES,
+    PLANTS,
+    SYMPTOMS,
+    display_name,
+    particulate_name,
+)
 
 # Soglie
 MIN_DAYS = 5            # giorni minimi per un'analisi sensata
@@ -48,56 +54,14 @@ def analyze(data: dict[str, dict]) -> dict:
     # Severità sintomatica giornaliera = somma dei livelli dei sintomi.
     day_total = {d: sum(data[d]["symptoms"].values()) for d in dates}
 
-    plant_results = []
-    for plant in PLANTS:
-        # Consideriamo SOLO i giorni in cui la pianta è stata effettivamente
-        # valutata (riga presente). I giorni "non valutati" — ad es. quando era
-        # attivo il filtro "solo Open-Meteo" — non influenzano le statistiche.
-        pairs = [
-            (data[d]["pollen"][plant], day_total[d])
-            for d in dates
-            if plant in data[d]["pollen"]
-        ]
-        if not pairs:
-            continue  # mai valutata: niente da dire
-        levels = [lv for lv, _ in pairs]
-        totals = [t for _, t in pairs]
-        if all(lv == 0 for lv in levels):
-            continue  # valutata ma sempre assente
+    plant_items = [(p, display_name(p)) for p in PLANTS]
+    suspects = _rank_suspects(
+        _category_results(dates, day_total, data, "pollen", plant_items)
+    )
 
-        corr = _pearson([float(x) for x in levels], [float(y) for y in totals])
-
-        high_totals = [t for lv, t in pairs if lv >= HIGH_POLLEN]
-        low_totals = [t for lv, t in pairs if lv < HIGH_POLLEN]
-        avg_high = sum(high_totals) / len(high_totals) if high_totals else None
-        avg_low = sum(low_totals) / len(low_totals) if low_totals else None
-        delta = (avg_high - avg_low) if (avg_high is not None and avg_low is not None) else None
-
-        plant_results.append(
-            {
-                "plant": plant,
-                "name": display_name(plant),
-                "corr": corr,
-                "avg_high": avg_high,
-                "avg_low": avg_low,
-                "delta": delta,
-                "days_high": len(high_totals),
-                "days_recorded": sum(1 for lv in levels if lv > 0),
-                "days_assessed": len(levels),
-            }
-        )
-
-    # Ordiniamo i sospetti: prima per correlazione (se disponibile),
-    # poi per differenza di severità tra giorni "alti" e "bassi".
-    def score(r):
-        c = r["corr"] if r["corr"] is not None else -2
-        d = r["delta"] if r["delta"] is not None else 0
-        return (c, d)
-
-    suspects = sorted(
-        [r for r in plant_results if (r["corr"] or 0) > 0 or (r["delta"] or 0) > 0],
-        key=score,
-        reverse=True,
+    dust_items = [(k, particulate_name(k)) for k in PARTICULATES]
+    particulate_suspects = _rank_suspects(
+        _category_results(dates, day_total, data, "particulate", dust_items)
     )
 
     # Sintomi più frequenti/gravi (giorni con livello >= Fastidioso).
@@ -123,8 +87,65 @@ def analyze(data: dict[str, dict]) -> dict:
         "enough_data": True,
         "n_days": n_days,
         "suspects": suspects,
+        "particulate_suspects": particulate_suspects,
         "symptom_stats": symptom_stats,
     }
+
+
+def _category_results(dates, day_total, data, category, items) -> list[dict]:
+    """Correla il livello di ciascuna voce di una categoria (pollini o polveri)
+    con la severità sintomatica giornaliera, usando SOLO i giorni in cui la voce
+    è stata effettivamente valutata (riga presente)."""
+    results = []
+    for key, name in items:
+        pairs = [
+            (data[d][category][key], day_total[d])
+            for d in dates
+            if key in data[d].get(category, {})
+        ]
+        if not pairs:
+            continue  # mai valutata: niente da dire
+        levels = [lv for lv, _ in pairs]
+        totals = [t for _, t in pairs]
+        if all(lv == 0 for lv in levels):
+            continue  # valutata ma sempre assente
+
+        corr = _pearson([float(x) for x in levels], [float(y) for y in totals])
+        high_totals = [t for lv, t in pairs if lv >= HIGH_POLLEN]
+        low_totals = [t for lv, t in pairs if lv < HIGH_POLLEN]
+        avg_high = sum(high_totals) / len(high_totals) if high_totals else None
+        avg_low = sum(low_totals) / len(low_totals) if low_totals else None
+        delta = (avg_high - avg_low) if (avg_high is not None and avg_low is not None) else None
+
+        results.append(
+            {
+                "key": key,
+                "name": name,
+                "corr": corr,
+                "avg_high": avg_high,
+                "avg_low": avg_low,
+                "delta": delta,
+                "days_high": len(high_totals),
+                "days_recorded": sum(1 for lv in levels if lv > 0),
+                "days_assessed": len(levels),
+            }
+        )
+    return results
+
+
+def _rank_suspects(results: list[dict]) -> list[dict]:
+    """Tiene solo le voci con un segnale positivo e le ordina: prima per
+    correlazione (se disponibile), poi per aumento di severità."""
+    def score(r):
+        c = r["corr"] if r["corr"] is not None else -2
+        d = r["delta"] if r["delta"] is not None else 0
+        return (c, d)
+
+    return sorted(
+        [r for r in results if (r["corr"] or 0) > 0 or (r["delta"] or 0) > 0],
+        key=score,
+        reverse=True,
+    )
 
 
 def correlation_label(corr: float | None) -> str:
@@ -173,6 +194,17 @@ def build_suggestions(result: dict) -> list[str]:
                     f"vs {r['avg_low']:.1f} negli altri"
                 )
             msgs.append("   " + " — ".join(parts))
+
+    dust = result.get("particulate_suspects") or []
+    if dust:
+        d0 = dust[0]
+        extra = (
+            f" (correlazione {correlation_label(d0['corr'])} {d0['corr']:+.2f})"
+            if d0["corr"] is not None else ""
+        )
+        msgs.append(
+            f"Tra le polveri, la più legata ai tuoi sintomi è {d0['name']}{extra}."
+        )
 
     stats = result["symptom_stats"]
     if stats:

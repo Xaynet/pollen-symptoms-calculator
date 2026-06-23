@@ -38,9 +38,12 @@ sempre crearlo da te seguendo le istruzioni in fondo.
   inserire i dati ancora più in fretta.
 - Bottone "Oggi" che porta dritto alla giornata di oggi, per la registrazione
   di tutti i giorni.
+- Una sezione "Polveri" con il particolato (PM10 e PM2.5), sugli stessi quattro
+  livelli dei pollini, anch'essa precompilabile da Open-Meteo.
 - Una pagina di analisi che calcola la correlazione tra il livello di ogni
-  polline e quanto sono stati forti i sintomi, mette in classifica i pollini
-  più sospetti e indica i sintomi che pesano di più.
+  polline (e delle polveri) e quanto sono stati forti i sintomi, mette in
+  classifica i pollini e le polveri più sospetti e indica i sintomi che pesano
+  di più.
 - Pulsante per **precompilare alcuni pollini** scaricandoli dalle previsioni
   gratuite di Open-Meteo, così non li devi cercare a mano (vedi sotto).
 - I dati restano in un file sul disco (SQLite) che puoi copiare per fare un
@@ -111,15 +114,17 @@ in quel caso l'`.exe` si scarica dagli *Artifacts* della run.
 
 Nella schermata del giorno c'è il pulsante **"🌍 Precompila da Open-Meteo"**.
 La prima volta ti chiede la città (la salva, così non te la richiede più; puoi
-cambiarla quando vuoi col pulsante **"📍 Città"**), poi scarica le previsioni
-pollini per quel giorno e imposta da solo i livelli.
+cambiarla quando vuoi col pulsante **"📍 Città"**), poi scarica le previsioni di
+pollini e polveri per quel giorno e imposta da solo i livelli.
 
 Va detto chiaramente cosa copre: le fonti automatiche gratuite danno solo
 **cinque** dei pollini della lista — **betulla, graminacee, assenzio, olivo e
-ambrosia**. Tutti gli altri restano da inserire a mano, perché nessun servizio
-gratuito li fornisce per le singole specie. I valori (granuli/m³, media del
-giorno) vengono convertiti in Assente/Basso/Medio/Alto con soglie indicative per
-famiglia, che puoi ritoccare in `pollen_app/openmeteo.py` se vuoi.
+ambrosia** — più le polveri **PM10** e **PM2.5**. Tutti gli altri pollini
+restano da inserire a mano, perché nessun servizio gratuito li fornisce per le
+singole specie. I valori (granuli/m³ per i pollini, µg/m³ per le polveri, media
+del giorno) vengono convertiti in Assente/Basso/Medio/Alto con soglie indicative
+— per i pollini per famiglia, per le polveri ispirate all'indice europeo di
+qualità dell'aria — che puoi ritoccare in `pollen_app/openmeteo.py` se vuoi.
 
 Serve la connessione a Internet solo nel momento in cui premi il pulsante; per
 il resto l'app funziona offline. Non richiede chiavi o registrazioni e usa solo
@@ -208,6 +213,8 @@ graminacee, olivo, orno, ligustro, frassino, frassino comune, pinacee,
 platanacee, poligonacee, pioppo, salice, ulmacee, urticacee.
 
 Livelli di polline: Assente, Basso, Medio, Alto.
+
+Polveri: PM10, PM2.5 (stessi quattro livelli dei pollini).
 
 Sintomi: tosse, gonfiore occhi, gonfiore labbra, prurito bocca, prurito naso,
 starnuti, gonfiore mani, muco, stanchezza, mal di testa, difficoltà

@@ -9,11 +9,13 @@ import customtkinter as ctk
 
 from .. import openmeteo, theme
 from ..constants import (
+    PARTICULATES,
     PLANTS,
     POLLEN_LEVELS,
     SYMPTOM_LEVELS,
     SYMPTOMS,
     display_name,
+    particulate_name,
 )
 from ..dates_it import long_date
 from ..openmeteo import COVERED_PLANTS
@@ -28,14 +30,15 @@ class DayEditor(ctk.CTkFrame):
 
         self.pollen_widgets: dict[str, ctk.CTkSegmentedButton] = {}
         self.symptom_widgets: dict[str, ctk.CTkSegmentedButton] = {}
+        self.particulate_widgets: dict[str, ctk.CTkSegmentedButton] = {}
 
         # Impostazione globale (non per giorno): quali pollini mostrare.
         self.show_all_pollen = self.db.get_setting("pollen_filter", "all") != "openmeteo"
-        self.saved_pollen, self.saved_symptoms = self.db.get_day(date_iso)
+        self.saved_pollen, self.saved_symptoms, self.saved_particulate = self.db.get_day(date_iso)
         self.body = None
 
         self._build_header()
-        self._build_body(self.saved_pollen, self.saved_symptoms)
+        self._build_body(self.saved_pollen, self.saved_symptoms, self.saved_particulate)
 
     # --- intestazione --------------------------------------------------------
     def _build_header(self):
@@ -73,11 +76,12 @@ class DayEditor(ctk.CTkFrame):
         return [p for p in PLANTS if p in covered]
 
     # --- corpo scorrevole ----------------------------------------------------
-    def _build_body(self, pollen_vals, symptom_vals):
+    def _build_body(self, pollen_vals, symptom_vals, particulate_vals):
         if self.body is not None:
             self.body.destroy()
         self.pollen_widgets = {}
         self.symptom_widgets = {}
+        self.particulate_widgets = {}
 
         body = ctk.CTkScrollableFrame(self, fg_color="transparent")
         body.pack(fill="both", expand=True, padx=20, pady=(4, 10))
@@ -95,6 +99,16 @@ class DayEditor(ctk.CTkFrame):
                 pollen_vals.get(plant, 0), kind="pollen",
             )
             self.pollen_widgets[plant] = sb
+            row += 1
+
+        # Polveri / particolato (sempre visibili: sono tutte da Open-Meteo).
+        row = self._section(body, row, "🌫  Polveri (particolato)")
+        for kind in PARTICULATES:
+            sb = self._make_row(
+                body, row, particulate_name(kind), POLLEN_LEVELS,
+                particulate_vals.get(kind, 0), kind="particulate",
+            )
+            self.particulate_widgets[kind] = sb
             row += 1
 
         row = self._section(body, row, "🤧  Sintomi")
@@ -146,13 +160,14 @@ class DayEditor(ctk.CTkFrame):
         self.db.set_setting("pollen_filter", "openmeteo" if only_om else "all")
         # Conserva i valori inseriti finora senza perdere quelli dei pollini che
         # vengono nascosti: parto dai valori salvati e sovrascrivo con i correnti.
-        cur_pollen, cur_symptoms = self._collect()
+        cur_pollen, cur_symptoms, cur_particulate = self._collect()
         merged = dict(self.saved_pollen)
         merged.update(cur_pollen)
         self.saved_pollen = merged
         self.saved_symptoms = cur_symptoms
+        self.saved_particulate = cur_particulate
         self.show_all_pollen = not only_om
-        self._build_body(merged, cur_symptoms)
+        self._build_body(merged, cur_symptoms, cur_particulate)
 
     # --- precompilazione da Open-Meteo --------------------------------------
     def _build_prefill_bar(self, parent, row) -> int:
@@ -175,7 +190,7 @@ class DayEditor(ctk.CTkFrame):
         self.prefill_status = ctk.CTkLabel(
             bar, font=theme.FONT_SMALL, text_color=theme.TEXT_MUTED,
             anchor="w", justify="left", wraplength=430,
-            text="Riempie automaticamente betulla, graminacee, assenzio, olivo e ambrosia.",
+            text="Riempie betulla, graminacee, assenzio, olivo, ambrosia e le polveri (PM10, PM2.5).",
         )
         self.prefill_status.pack(side="left", padx=10, fill="x", expand=True)
         return row + 1
@@ -229,28 +244,34 @@ class DayEditor(ctk.CTkFrame):
 
     def _prefill_worker(self, lat, lon, label):
         try:
-            levels = openmeteo.fetch_pollen(lat, lon, self.date_iso)
+            air = openmeteo.fetch_air(lat, lon, self.date_iso)
         except openmeteo.OpenMeteoError as exc:
             self.after(0, lambda e=str(exc): self._prefill_done(None, label, e))
             return
-        self.after(0, lambda: self._prefill_done(levels, label, None))
+        self.after(0, lambda: self._prefill_done(air, label, None))
 
-    def _prefill_done(self, levels, label, error):
+    def _prefill_done(self, air, label, error):
         if not self.winfo_exists():
             return
         self.prefill_btn.configure(state="normal")
         if error:
             self._set_prefill_status(error, error=True)
             return
-        applied = []
-        for plant, lv in levels.items():
-            sb = self.pollen_widgets.get(plant)
-            if sb is not None:
-                sb.set(POLLEN_LEVELS[lv])
-                self._update_segment_color(sb)
-                applied.append(display_name(plant))
+
+        def apply(values, widgets, name_fn):
+            names = []
+            for key, lv in values.items():
+                sb = widgets.get(key)
+                if sb is not None:
+                    sb.set(POLLEN_LEVELS[lv])
+                    self._update_segment_color(sb)
+                    names.append(name_fn(key))
+            return names
+
+        applied = apply(air.get("pollen", {}), self.pollen_widgets, display_name)
+        applied += apply(air.get("particulate", {}), self.particulate_widgets, particulate_name)
         self._set_prefill_status(
-            f"Precompilati {len(applied)} pollini da Open-Meteo ({label}): "
+            f"Precompilate {len(applied)} voci da Open-Meteo ({label}): "
             f"{', '.join(applied)}. Controlla e salva."
         )
 
@@ -260,7 +281,7 @@ class DayEditor(ctk.CTkFrame):
             anchor="w",
         ).grid(row=row, column=0, sticky="w", padx=(6, 8), pady=3)
 
-        colors = theme.POLLEN_LEVEL_COLORS if kind == "pollen" else theme.SYMPTOM_LEVEL_COLORS
+        colors = theme.SYMPTOM_LEVEL_COLORS if kind == "symptom" else theme.POLLEN_LEVEL_COLORS
         sb = ctk.CTkSegmentedButton(
             parent,
             values=values,
@@ -295,11 +316,15 @@ class DayEditor(ctk.CTkFrame):
             sym: SYMPTOM_LEVELS.index(sb.get())
             for sym, sb in self.symptom_widgets.items()
         }
-        return pollen, symptoms
+        particulate = {
+            kind: POLLEN_LEVELS.index(sb.get())
+            for kind, sb in self.particulate_widgets.items()
+        }
+        return pollen, symptoms, particulate
 
     def _save_and_back(self):
-        pollen, symptoms = self._collect()
-        self.db.save_day(self.date_iso, pollen, symptoms)
+        pollen, symptoms, particulate = self._collect()
+        self.db.save_day(self.date_iso, pollen, symptoms, particulate)
         self.controller.show_calendar()
 
     def _delete_and_back(self):

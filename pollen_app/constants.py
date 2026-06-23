@@ -37,6 +37,15 @@ PLANTS = [
 POLLEN_LEVELS = ["Assente", "Basso", "Medio", "Alto"]
 POLLEN_LEVEL_INDEX = {name: i for i, name in enumerate(POLLEN_LEVELS)}
 
+# --- Polveri / particolato (stessi 4 livelli dei pollini) --------------------
+# Le chiavi sono usate come identificatori nel database: non modificarle.
+PARTICULATES = ["pm10", "pm2.5"]
+PARTICULATE_NAMES = {"pm10": "PM10", "pm2.5": "PM2.5"}
+
+
+def particulate_name(key: str) -> str:
+    return PARTICULATE_NAMES.get(key, key)
+
 # --- Sintomi monitorati ------------------------------------------------------
 SYMPTOMS = [
     "tosse",

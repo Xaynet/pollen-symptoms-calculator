@@ -60,6 +60,16 @@ class AnalysisView(ctk.CTkFrame):
             for r in suspects[:8]:
                 self._suspect_row(body, r, max_delta)
 
+        # Polveri sotto osservazione (PM10, PM2.5)
+        dust = result.get("particulate_suspects") or []
+        if dust:
+            ctk.CTkLabel(body, text="🌫  Polveri sotto osservazione", font=theme.FONT_H2,
+                         text_color=theme.GREEN_DARK).pack(anchor="w", pady=(18, 6))
+            max_delta = max((abs(r["delta"]) for r in dust if r["delta"] is not None),
+                            default=1) or 1
+            for r in dust:
+                self._suspect_row(body, r, max_delta)
+
         # Sintomi più impattanti
         stats = result["symptom_stats"]
         if stats:

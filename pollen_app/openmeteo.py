@@ -1,4 +1,4 @@
-"""Precompilazione dei pollini tramite le API gratuite di Open-Meteo.
+"""Precompilazione di pollini e polveri tramite le API gratuite di Open-Meteo.
 
 Open-Meteo (basato sui dati europei CAMS) espone solo alcuni pollini, che
 mappiamo sulle piante usate dall'app:
@@ -36,19 +36,32 @@ POLLEN_VARS = {
 # Le piante che questa fonte è in grado di precompilare.
 COVERED_PLANTS = list(POLLEN_VARS.keys())
 
-# Soglie in granuli/m³ (media giornaliera): (Basso, Medio, Alto).
-# valore < Basso  -> 0 Assente
-# valore < Medio  -> 1 Basso
-# valore < Alto   -> 2 Medio
-# valore >= Alto  -> 3 Alto
-# Valori indicativi ispirati alle classi delle reti aerobiologiche; si possono
-# ritoccare qui senza toccare il resto del codice.
+# Polveri / particolato (chiave dell'app -> variabile oraria di Open-Meteo).
+PARTICULATE_VARS = {
+    "pm10": "pm10",
+    "pm2.5": "pm2_5",
+}
+COVERED_PARTICULATES = list(PARTICULATE_VARS.keys())
+
+# Tutte le soglie hanno forma (Basso, Medio, Alto):
+#   valore < Basso  -> 0 Assente   |  valore < Medio -> 1 Basso
+#   valore < Alto   -> 2 Medio     |  valore >= Alto -> 3 Alto
+
+# Pollini: granuli/m³ (media giornaliera). Valori indicativi ispirati alle
+# classi delle reti aerobiologiche.
 THRESHOLDS = {
     "betulla": (1, 11, 51),
     "graminacee": (1, 6, 31),
     "assenzio": (1, 6, 26),
     "olivo": (1, 16, 81),
     "ambrosia": (1, 6, 21),
+}
+
+# Particolato: µg/m³ (media giornaliera). Soglie ispirate all'indice europeo
+# di qualità dell'aria (EEA); per il PM10 50 µg/m³ è il valore limite giornaliero.
+PARTICULATE_THRESHOLDS = {
+    "pm10": (10, 25, 50),
+    "pm2.5": (5, 15, 25),
 }
 
 _GEOCODE_URL = "https://geocoding-api.open-meteo.com/v1/search"
@@ -96,8 +109,8 @@ def geocode(city: str) -> tuple[float, float, str]:
     return float(r["latitude"]), float(r["longitude"]), label
 
 
-def _to_level(plant: str, value: float) -> int:
-    low, mid, high = THRESHOLDS[plant]
+def _to_level(value: float, thresholds: tuple[float, float, float]) -> int:
+    low, mid, high = thresholds
     if value < low:
         return 0
     if value < mid:
@@ -107,36 +120,46 @@ def _to_level(plant: str, value: float) -> int:
     return 3
 
 
-def fetch_pollen(lat: float, lon: float, date_iso: str) -> dict[str, int]:
-    """Scarica i pollini per la data indicata e li converte in livelli 0..3.
+def _daily_levels(hourly: dict, var_map: dict, threshold_map: dict) -> dict[str, int]:
+    """Converte le serie orarie di Open-Meteo in livelli 0..3 (media del giorno),
+    saltando le voci prive di dati."""
+    levels: dict[str, int] = {}
+    for key, var in var_map.items():
+        series = hourly.get(var) or []
+        valid = [v for v in series if v is not None]
+        if not valid:
+            continue
+        daily_mean = sum(valid) / len(valid)
+        levels[key] = _to_level(daily_mean, threshold_map[key])
+    return levels
 
-    Restituisce {pianta: livello} solo per le piante coperte e per cui esistono
-    dati. Solleva OpenMeteoError se per quella data non c'è alcun dato (ad es.
-    date troppo lontane nel passato/futuro rispetto alla copertura del modello).
+
+def fetch_air(lat: float, lon: float, date_iso: str) -> dict[str, dict[str, int]]:
+    """Scarica pollini e polveri per la data indicata, convertiti in livelli 0..3.
+
+    Restituisce {"pollen": {pianta: livello}, "particulate": {tipo: livello}},
+    con solo le voci per cui esistono dati. Solleva OpenMeteoError se per quella
+    data non c'è alcun dato (ad es. date troppo lontane nel passato/futuro
+    rispetto alla copertura del modello).
     """
     data = _get_json(
         _AIRQUALITY_URL,
         {
             "latitude": lat,
             "longitude": lon,
-            "hourly": ",".join(POLLEN_VARS.values()),
+            "hourly": ",".join([*POLLEN_VARS.values(), *PARTICULATE_VARS.values()]),
             "start_date": date_iso,
             "end_date": date_iso,
             "timezone": "auto",
         },
     )
     hourly = data.get("hourly") or {}
-    levels: dict[str, int] = {}
-    for plant, var in POLLEN_VARS.items():
-        series = hourly.get(var) or []
-        valid = [v for v in series if v is not None]
-        if not valid:
-            continue
-        daily_mean = sum(valid) / len(valid)
-        levels[plant] = _to_level(plant, daily_mean)
-
-    if not levels:
+    result = {
+        "pollen": _daily_levels(hourly, POLLEN_VARS, THRESHOLDS),
+        "particulate": _daily_levels(hourly, PARTICULATE_VARS, PARTICULATE_THRESHOLDS),
+    }
+    if not result["pollen"] and not result["particulate"]:
         raise OpenMeteoError(
-            "Nessun dato sui pollini disponibile per questa data in questa zona."
+            "Nessun dato su pollini o polveri disponibile per questa data in questa zona."
         )
-    return levels
+    return result
