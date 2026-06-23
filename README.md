@@ -1,0 +1,137 @@
+# Pollini & Sintomi
+
+Programma per Windows per tenere un diario giornaliero delle allergie: ogni
+giorno segni quanti pollini ci sono nell'aria e che sintomi hai avuto. Dopo un
+po' che raccogli dati, il programma li incrocia e ti dice quali pollini sembrano
+darti più fastidio, così puoi farti un'idea delle cause.
+
+L'interfaccia usa toni di verde, giallo e bianco (stile solarpunk) ed è pensata
+per inserire i dati in fretta, con pochi click.
+
+## Cosa fa
+
+- Calendario del mese in cui si vede a colpo d'occhio quali giorni hai già
+  compilato. I giorni compilati sono colorati a seconda di quanto sono stati
+  pesanti i sintomi (dal verde chiaro all'arancione); quelli ancora da fare
+  restano bianchi.
+- Pagina del singolo giorno con tutti i 25 pollini e i 12 sintomi su una sola
+  schermata. Per ogni voce scegli il livello con un click (per i pollini:
+  Assente / Basso / Medio / Alto; per i sintomi sei livelli). Niente finestre
+  che si aprono e chiudono.
+- Bottone "Oggi" che porta dritto alla giornata di oggi, per la registrazione
+  di tutti i giorni.
+- Una pagina di analisi che calcola la correlazione tra il livello di ogni
+  polline e quanto sono stati forti i sintomi, mette in classifica i pollini
+  più sospetti e indica i sintomi che pesano di più.
+- I dati restano in un file sul disco (SQLite) che puoi copiare per fare un
+  backup e portare su un altro PC.
+
+## Com'è fatto
+
+Python (3.10 o successivo), interfaccia con
+[CustomTkinter](https://github.com/TomSchimansky/CustomTkinter) e dati su
+SQLite (il modulo `sqlite3` è già incluso in Python). L'unica libreria da
+installare è CustomTkinter. Per l'eseguibile si usa PyInstaller.
+
+## Avviare il programma
+
+Serve Python 3.10 o successivo
+([download](https://www.python.org/downloads/); durante l'installazione spunta
+"Add Python to PATH").
+
+Il modo più rapido è fare doppio click su `avvia.bat`: la prima volta si
+prepara l'ambiente e scarica quel che serve, le volte dopo apre direttamente il
+programma.
+
+Se preferisci la riga di comando:
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+python main.py
+```
+
+## Creare l'eseguibile (.exe)
+
+Doppio click su `crea_exe.bat`. Quando finisce trovi il file in
+`dist\PolliniSintomi.exe`: è autonomo, puoi copiarlo dove vuoi e farlo partire
+anche su un PC senza Python.
+
+A mano invece:
+
+```powershell
+pip install pyinstaller
+pyinstaller --noconfirm --windowed --onefile ^
+    --name "PolliniSintomi" ^
+    --collect-all customtkinter ^
+    main.py
+```
+
+Il `--collect-all customtkinter` serve perché CustomTkinter porta con sé dei
+file di tema che altrimenti PyInstaller si dimentica di includere.
+
+## Dove finiscono i dati
+
+Tutto sta in un unico file:
+
+```
+C:\Users\<utente>\Documents\PollenSymptomsCalculator\pollen_data.db
+```
+
+Per il backup basta copiare quel file. Se vuoi tenerlo da un'altra parte (o
+provare il programma su una copia separata) puoi indicare un percorso diverso
+con la variabile d'ambiente `POLLEN_DB_PATH`:
+
+```powershell
+$env:POLLEN_DB_PATH = "D:\backup\pollen_data.db"
+python main.py
+```
+
+Il percorso che sta usando in quel momento è scritto in basso nella finestra.
+
+## I file del progetto
+
+```
+pollen-symptoms-calculator/
+├── avvia.bat                # doppio click: avvia il programma
+├── crea_exe.bat             # doppio click: crea l'eseguibile
+├── main.py                  # avvio
+├── requirements.txt
+├── README.md
+├── .gitignore
+└── pollen_app/
+    ├── __init__.py
+    ├── constants.py         # elenco piante, sintomi e livelli
+    ├── theme.py             # colori e font
+    ├── dates_it.py          # nomi di mesi e giorni in italiano
+    ├── db.py                # lettura/scrittura su SQLite
+    ├── analysis.py          # calcolo correlazioni e suggerimenti
+    └── ui/
+        ├── calendar_view.py # il calendario
+        ├── day_editor.py    # la pagina del singolo giorno
+        └── analysis_view.py # la pagina dell'analisi
+```
+
+## Piante e sintomi gestiti
+
+Piante: aceracee, betulla, chenopodiacee/amarantacee, assenzio, ambrosia,
+nocciolo, carpino, carpino nero, cupressacee/taxacee, castagno, faggio, quercia,
+graminacee, olivo, orno, ligustro, frassino, frassino comune, pinacee,
+platanacee, poligonacee, pioppo, salice, ulmacee, urticacee.
+
+Livelli di polline: Assente, Basso, Medio, Alto.
+
+Sintomi: tosse, gonfiore occhi, gonfiore labbra, prurito bocca, prurito naso,
+starnuti, gonfiore mani, muco, stanchezza, mal di testa, difficoltà
+respiratoria, sibilo.
+
+Livelli dei sintomi: Assente, Molto lieve, Tollerabile, Fastidioso,
+Problematico, Eccessivo.
+
+## Una precisazione
+
+L'analisi si basa solo sui dati che inserisci e segnala delle coincidenze: il
+fatto che un polline e dei sintomi vadano spesso insieme non vuol dire per forza
+che sia la causa. Prendila come un punto di partenza da discutere con il medico
+o l'allergologo.
