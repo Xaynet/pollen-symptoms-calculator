@@ -12,6 +12,7 @@ PLANTS = [
     "assenzio",
     "ambrosia",
     "nocciolo",
+    "ontano",
     "carpino",
     "carpino nero",
     "cupressacee/taxacee",
