@@ -30,7 +30,12 @@ sempre crearlo da te seguendo le istruzioni in fondo.
 - Pagina del singolo giorno con tutti i 25 pollini e i 12 sintomi su una sola
   schermata. Per ogni voce scegli il livello con un click (per i pollini:
   Assente / Basso / Medio / Alto; per i sintomi sei livelli). Niente finestre
-  che si aprono e chiudono.
+  che si aprono e chiudono. Il valore selezionato si colora in base
+  all'intensità (dal verde all'arancione), per vedere a colpo d'occhio la
+  gravità.
+- Un interruttore (impostazione unica, valida per tutti i giorni) per mostrare
+  tutti i pollini oppure solo i cinque coperti da Open-Meteo, quando vuoi
+  inserire i dati ancora più in fretta.
 - Bottone "Oggi" che porta dritto alla giornata di oggi, per la registrazione
   di tutti i giorni.
 - Una pagina di analisi che calcola la correlazione tra il livello di ogni
@@ -119,6 +124,15 @@ famiglia, che puoi ritoccare in `pollen_app/openmeteo.py` se vuoi.
 Serve la connessione a Internet solo nel momento in cui premi il pulsante; per
 il resto l'app funziona offline. Non richiede chiavi o registrazioni e usa solo
 moduli standard di Python.
+
+Nella stessa schermata c'è l'interruttore **"Mostra solo i pollini di
+Open-Meteo"**: è un'impostazione globale (vale per tutti i giorni, non solo per
+quello aperto) e serve a inserire i dati più in fretta vedendo solo le cinque
+piante che si possono anche precompilare. Importante: con il filtro attivo, i
+pollini nascosti **non** vengono registrati come "Assente", ma restano
+semplicemente *non valutati* per quel giorno (nessun dato scritto), e in quanto
+tali **non influenzano le statistiche** — l'analisi considera solo i giorni in
+cui una pianta è stata effettivamente valutata.
 
 ## Dove finiscono i dati
 

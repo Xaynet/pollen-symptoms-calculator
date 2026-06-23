@@ -16,6 +16,7 @@ from ..constants import (
     display_name,
 )
 from ..dates_it import long_date
+from ..openmeteo import COVERED_PLANTS
 
 
 class DayEditor(ctk.CTkFrame):
@@ -28,10 +29,13 @@ class DayEditor(ctk.CTkFrame):
         self.pollen_widgets: dict[str, ctk.CTkSegmentedButton] = {}
         self.symptom_widgets: dict[str, ctk.CTkSegmentedButton] = {}
 
-        saved_pollen, saved_symptoms = self.db.get_day(date_iso)
+        # Impostazione globale (non per giorno): quali pollini mostrare.
+        self.show_all_pollen = self.db.get_setting("pollen_filter", "all") != "openmeteo"
+        self.saved_pollen, self.saved_symptoms = self.db.get_day(date_iso)
+        self.body = None
 
         self._build_header()
-        self._build_body(saved_pollen, saved_symptoms)
+        self._build_body(self.saved_pollen, self.saved_symptoms)
 
     # --- intestazione --------------------------------------------------------
     def _build_header(self):
@@ -62,20 +66,33 @@ class DayEditor(ctk.CTkFrame):
             )
             self.status.pack(side="right", padx=10)
 
+    def _visible_plants(self):
+        if self.show_all_pollen:
+            return PLANTS
+        covered = set(COVERED_PLANTS)
+        return [p for p in PLANTS if p in covered]
+
     # --- corpo scorrevole ----------------------------------------------------
-    def _build_body(self, saved_pollen, saved_symptoms):
+    def _build_body(self, pollen_vals, symptom_vals):
+        if self.body is not None:
+            self.body.destroy()
+        self.pollen_widgets = {}
+        self.symptom_widgets = {}
+
         body = ctk.CTkScrollableFrame(self, fg_color="transparent")
         body.pack(fill="both", expand=True, padx=20, pady=(4, 10))
         body.grid_columnconfigure(0, weight=0, minsize=210)
         body.grid_columnconfigure(1, weight=1)
+        self.body = body
 
         row = 0
         row = self._section(body, row, "🌿  Pollini nell'aria")
+        row = self._build_filter_bar(body, row)
         row = self._build_prefill_bar(body, row)
-        for plant in PLANTS:
+        for plant in self._visible_plants():
             sb = self._make_row(
                 body, row, display_name(plant), POLLEN_LEVELS,
-                saved_pollen.get(plant, 0), kind="pollen",
+                pollen_vals.get(plant, 0), kind="pollen",
             )
             self.pollen_widgets[plant] = sb
             row += 1
@@ -84,7 +101,7 @@ class DayEditor(ctk.CTkFrame):
         for symptom in SYMPTOMS:
             sb = self._make_row(
                 body, row, display_name(symptom), SYMPTOM_LEVELS,
-                saved_symptoms.get(symptom, 0), kind="symptom",
+                symptom_vals.get(symptom, 0), kind="symptom",
             )
             self.symptom_widgets[symptom] = sb
             row += 1
@@ -109,6 +126,33 @@ class DayEditor(ctk.CTkFrame):
             parent, text=title, font=theme.FONT_H2, text_color=theme.GREEN_DARK,
         ).grid(row=row, column=0, columnspan=2, sticky="w", pady=(12, 6))
         return row + 1
+
+    # --- filtro pollini (impostazione globale) -------------------------------
+    def _build_filter_bar(self, parent, row) -> int:
+        bar = ctk.CTkFrame(parent, fg_color="transparent")
+        bar.grid(row=row, column=0, columnspan=2, sticky="ew", pady=(0, 2))
+        self.pollen_filter_switch = ctk.CTkSwitch(
+            bar, text="Mostra solo i pollini di Open-Meteo",
+            font=theme.FONT_SMALL, text_color=theme.TEXT_MUTED,
+            progress_color=theme.GREEN, command=self._toggle_pollen_filter,
+        )
+        self.pollen_filter_switch.pack(side="left")
+        if not self.show_all_pollen:
+            self.pollen_filter_switch.select()
+        return row + 1
+
+    def _toggle_pollen_filter(self):
+        only_om = bool(self.pollen_filter_switch.get())
+        self.db.set_setting("pollen_filter", "openmeteo" if only_om else "all")
+        # Conserva i valori inseriti finora senza perdere quelli dei pollini che
+        # vengono nascosti: parto dai valori salvati e sovrascrivo con i correnti.
+        cur_pollen, cur_symptoms = self._collect()
+        merged = dict(self.saved_pollen)
+        merged.update(cur_pollen)
+        self.saved_pollen = merged
+        self.saved_symptoms = cur_symptoms
+        self.show_all_pollen = not only_om
+        self._build_body(merged, cur_symptoms)
 
     # --- precompilazione da Open-Meteo --------------------------------------
     def _build_prefill_bar(self, parent, row) -> int:
@@ -203,6 +247,7 @@ class DayEditor(ctk.CTkFrame):
             sb = self.pollen_widgets.get(plant)
             if sb is not None:
                 sb.set(POLLEN_LEVELS[lv])
+                self._update_segment_color(sb)
                 applied.append(display_name(plant))
         self._set_prefill_status(
             f"Precompilati {len(applied)} pollini da Open-Meteo ({label}): "
@@ -210,26 +255,35 @@ class DayEditor(ctk.CTkFrame):
         )
 
     def _make_row(self, parent, row, label, values, selected_index, kind):
-        bg = theme.SURFACE if row % 2 == 0 else theme.SURFACE_ALT
         ctk.CTkLabel(
             parent, text=label, font=theme.FONT_NORMAL, text_color=theme.TEXT,
             anchor="w",
         ).grid(row=row, column=0, sticky="w", padx=(6, 8), pady=3)
 
+        colors = theme.POLLEN_LEVEL_COLORS if kind == "pollen" else theme.SYMPTOM_LEVEL_COLORS
         sb = ctk.CTkSegmentedButton(
             parent,
             values=values,
             font=theme.FONT_SMALL,
             fg_color=theme.SURFACE_ALT,
-            selected_color=theme.GREEN if kind == "pollen" else theme.YELLOW,
-            selected_hover_color=theme.GREEN_HOVER if kind == "pollen" else theme.YELLOW_HOVER,
             unselected_color=theme.SURFACE,
             unselected_hover_color=theme.SURFACE_ALT,
             text_color=theme.TEXT,
         )
+        # Il colore del valore selezionato dipende dall'intensità scelta.
+        sb._level_values = list(values)
+        sb._level_colors = colors
+        sb.configure(command=lambda v, w=sb: self._update_segment_color(w))
         sb.grid(row=row, column=1, sticky="ew", padx=(0, 6), pady=3)
         sb.set(values[selected_index])
+        self._update_segment_color(sb)
         return sb
+
+    def _update_segment_color(self, sb):
+        """Imposta il colore del segmento selezionato in base al livello."""
+        idx = sb._level_values.index(sb.get())
+        color = sb._level_colors[idx]
+        sb.configure(selected_color=color, selected_hover_color=color)
 
     # --- azioni --------------------------------------------------------------
     def _collect(self):

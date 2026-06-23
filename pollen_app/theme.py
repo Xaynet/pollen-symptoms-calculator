@@ -30,6 +30,24 @@ SEVERITY_COLORS = [
     "#E2742B",  # 5 - eccessivo (arancio)
 ]
 
+# Colore del valore selezionato in base all'intensità.
+# Pollini: 4 livelli (Assente/Basso/Medio/Alto).
+POLLEN_LEVEL_COLORS = [
+    "#E6ECE0",  # Assente - neutro
+    "#9FD356",  # Basso   - verde
+    "#F2C811",  # Medio   - giallo/ambra
+    "#E2742B",  # Alto    - arancio
+]
+# Sintomi: 6 livelli (Assente ... Eccessivo).
+SYMPTOM_LEVEL_COLORS = [
+    "#E6ECE0",  # Assente     - neutro
+    "#C2E791",  # Molto lieve - verde tenue
+    "#EFE06A",  # Tollerabile - giallo
+    "#F4C84B",  # Fastidioso  - oro
+    "#EFA13C",  # Problematico- ambra
+    "#E2742B",  # Eccessivo   - arancio
+]
+
 # Caratteri (famiglia + dimensioni)
 FONT_FAMILY = "Segoe UI"
 FONT_TITLE = (FONT_FAMILY, 22, "bold")

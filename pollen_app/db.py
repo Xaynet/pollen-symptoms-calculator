@@ -14,7 +14,7 @@ from pathlib import Path
 # Versione corrente dello schema. Aumentala di 1 ogni volta che aggiungi una
 # nuova voce in _MIGRATIONS, così le versioni future dell'app aggiornano da sole
 # i database degli utenti senza perdere i dati già inseriti.
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 # Schema di base (versione 1). Tutte le CREATE sono "IF NOT EXISTS" così la
 # migrazione è sicura sia su un database nuovo sia su uno preesistente.
@@ -51,11 +51,36 @@ def _migration_1(conn: sqlite3.Connection) -> None:
     conn.executescript(_SCHEMA_V1)
 
 
+def _migration_2(conn: sqlite3.Connection) -> None:
+    """Rende esplicito il livello 0 ("Assente valutato") per tutti i pollini
+    non presenti nei giorni già salvati.
+
+    Prima dell'introduzione del filtro pollini, l'editor mostrava sempre tutte
+    le piante: l'assenza di riga significava quindi "Assente". Da ora invece
+    l'assenza di riga può indicare "non valutato" (filtro "solo Open-Meteo").
+    Per non alterare il significato dei dati storici, marchiamo come valutate
+    (livello 0) tutte le piante mancanti nei giorni preesistenti.
+    """
+    from .constants import PLANTS
+
+    days = [r[0] for r in conn.execute("SELECT date FROM days")]
+    for d in days:
+        present = {
+            r[0] for r in conn.execute("SELECT plant FROM pollen WHERE date = ?", (d,))
+        }
+        missing = [(d, p, 0) for p in PLANTS if p not in present]
+        if missing:
+            conn.executemany(
+                "INSERT INTO pollen(date, plant, level) VALUES(?, ?, ?)", missing
+            )
+
+
 # Mappa: numero di versione -> funzione che porta lo schema a quella versione.
 # Per evolvere il database in futuro (es. aggiungere una colonna) aggiungi qui
-# _migration_2, _migration_3, ... e incrementa SCHEMA_VERSION.
+# _migration_3, ... e incrementa SCHEMA_VERSION.
 _MIGRATIONS = {
     1: _migration_1,
+    2: _migration_2,
 }
 
 
@@ -113,21 +138,29 @@ class Database:
 
     # --- Scrittura -----------------------------------------------------------
     def save_day(self, date: str, pollen: dict[str, int], symptoms: dict[str, int]) -> None:
-        """Salva (o aggiorna) un giorno. I dizionari mappano chiave -> livello;
-        i livelli pari a 0 non vengono memorizzati."""
+        """Salva (o aggiorna) un giorno.
+
+        `pollen` contiene SOLO le piante effettivamente valutate (quelle mostrate
+        nell'editor). Vengono memorizzate tutte, anche a livello 0 ("Assente
+        valutato"), tramite upsert e SENZA cancellare le piante non passate: così,
+        con il filtro "solo Open-Meteo" attivo, le altre piante restano "non
+        valutate" per quel giorno (riga assente) e non influenzano le statistiche.
+
+        I sintomi sono sempre tutti presenti nell'editor, quindi li riscriviamo da
+        zero memorizzando solo quelli > 0 (l'assenza di riga = "Assente").
+        """
         cur = self.conn.cursor()
         cur.execute(
             "INSERT INTO days(date, updated_at) VALUES(?, ?) "
             "ON CONFLICT(date) DO UPDATE SET updated_at=excluded.updated_at",
             (date, datetime.now().isoformat(timespec="seconds")),
         )
-        # Riscriviamo da zero i livelli del giorno (semplice e robusto).
-        cur.execute("DELETE FROM pollen WHERE date = ?", (date,))
-        cur.execute("DELETE FROM symptoms WHERE date = ?", (date,))
         cur.executemany(
-            "INSERT INTO pollen(date, plant, level) VALUES(?, ?, ?)",
-            [(date, p, lv) for p, lv in pollen.items() if lv > 0],
+            "INSERT INTO pollen(date, plant, level) VALUES(?, ?, ?) "
+            "ON CONFLICT(date, plant) DO UPDATE SET level=excluded.level",
+            [(date, p, lv) for p, lv in pollen.items()],
         )
+        cur.execute("DELETE FROM symptoms WHERE date = ?", (date,))
         cur.executemany(
             "INSERT INTO symptoms(date, symptom, level) VALUES(?, ?, ?)",
             [(date, s, lv) for s, lv in symptoms.items() if lv > 0],

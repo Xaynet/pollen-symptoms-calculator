@@ -46,18 +46,29 @@ def analyze(data: dict[str, dict]) -> dict:
         }
 
     # Severità sintomatica giornaliera = somma dei livelli dei sintomi.
-    day_totals = [sum(data[d]["symptoms"].values()) for d in dates]
+    day_total = {d: sum(data[d]["symptoms"].values()) for d in dates}
 
     plant_results = []
     for plant in PLANTS:
-        levels = [data[d]["pollen"].get(plant, 0) for d in dates]
+        # Consideriamo SOLO i giorni in cui la pianta è stata effettivamente
+        # valutata (riga presente). I giorni "non valutati" — ad es. quando era
+        # attivo il filtro "solo Open-Meteo" — non influenzano le statistiche.
+        pairs = [
+            (data[d]["pollen"][plant], day_total[d])
+            for d in dates
+            if plant in data[d]["pollen"]
+        ]
+        if not pairs:
+            continue  # mai valutata: niente da dire
+        levels = [lv for lv, _ in pairs]
+        totals = [t for _, t in pairs]
         if all(lv == 0 for lv in levels):
-            continue  # mai registrata: niente da dire
+            continue  # valutata ma sempre assente
 
-        corr = _pearson([float(x) for x in levels], [float(y) for y in day_totals])
+        corr = _pearson([float(x) for x in levels], [float(y) for y in totals])
 
-        high_totals = [t for lv, t in zip(levels, day_totals) if lv >= HIGH_POLLEN]
-        low_totals = [t for lv, t in zip(levels, day_totals) if lv < HIGH_POLLEN]
+        high_totals = [t for lv, t in pairs if lv >= HIGH_POLLEN]
+        low_totals = [t for lv, t in pairs if lv < HIGH_POLLEN]
         avg_high = sum(high_totals) / len(high_totals) if high_totals else None
         avg_low = sum(low_totals) / len(low_totals) if low_totals else None
         delta = (avg_high - avg_low) if (avg_high is not None and avg_low is not None) else None
@@ -72,6 +83,7 @@ def analyze(data: dict[str, dict]) -> dict:
                 "delta": delta,
                 "days_high": len(high_totals),
                 "days_recorded": sum(1 for lv in levels if lv > 0),
+                "days_assessed": len(levels),
             }
         )
 
