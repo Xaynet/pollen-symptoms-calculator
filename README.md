@@ -8,6 +8,19 @@ darti più fastidio, così puoi farti un'idea delle cause.
 L'interfaccia usa toni di verde, giallo e bianco (stile solarpunk) ed è pensata
 per inserire i dati in fretta, con pochi click.
 
+## Scaricare
+
+- **Programma già pronto (.exe)**: vai nella pagina
+  [Releases](https://github.com/Xaynet/pollen-symptoms-calculator/releases) e
+  scarica `PolliniSintomi.exe` dall'ultima versione. Si avvia con un doppio
+  click, non serve installare Python.
+- **Codice sorgente**: dal bottone verde **Code** in alto scegli
+  *Download ZIP*, oppure prendi lo zip dalla stessa pagina delle Releases.
+
+L'`.exe` delle Releases viene compilato in automatico da una GitHub Action ogni
+volta che si pubblica una nuova versione (vedi più sotto). Se preferisci puoi
+sempre crearlo da te seguendo le istruzioni in fondo.
+
 ## Cosa fa
 
 - Calendario del mese in cui si vede a colpo d'occhio quali giorni hai già
@@ -71,6 +84,22 @@ pyinstaller --noconfirm --windowed --onefile ^
 Il `--collect-all customtkinter` serve perché CustomTkinter porta con sé dei
 file di tema che altrimenti PyInstaller si dimentica di includere.
 
+## Pubblicare una nuova versione su GitHub
+
+C'è una GitHub Action (`.github/workflows/build-release.yml`) che compila
+l'`.exe` su una macchina Windows e lo allega alla release. Per farla partire
+basta creare un tag che inizia per `v` e pubblicarlo:
+
+```powershell
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+Dopo qualche minuto, nella pagina Releases comparirà la nuova versione con
+`PolliniSintomi.exe` pronto da scaricare. In alternativa si può lanciare la
+compilazione a mano dalla scheda **Actions** del repo (pulsante *Run workflow*):
+in quel caso l'`.exe` si scarica dagli *Artifacts* della run.
+
 ## Dove finiscono i dati
 
 Tutto sta in un unico file:
@@ -100,6 +129,8 @@ pollen-symptoms-calculator/
 ├── requirements.txt
 ├── README.md
 ├── .gitignore
+├── .github/workflows/
+│   └── build-release.yml    # compila e pubblica l'exe su GitHub
 └── pollen_app/
     ├── __init__.py
     ├── constants.py         # elenco piante, sintomi e livelli

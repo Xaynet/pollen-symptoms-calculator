@@ -1,0 +1,44 @@
+name: Compila eseguibile Windows
+
+# Si attiva quando pubblichi un tag che inizia con "v" (es. v1.0.0)
+# e puo' anche essere lanciata a mano dalla scheda Actions.
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Installa le dipendenze
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller
+
+      - name: Crea l'eseguibile
+        run: pyinstaller --noconfirm --windowed --onefile --name "PolliniSintomi" --collect-all customtkinter main.py
+
+      # Disponibile dalla scheda Actions anche senza pubblicare una release
+      - name: Carica come artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: PolliniSintomi
+          path: dist/PolliniSintomi.exe
+
+      # Quando si tratta di un tag, allega l'exe alla release corrispondente
+      - name: Allega alla release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/PolliniSintomi.exe
