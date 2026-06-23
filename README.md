@@ -36,6 +36,8 @@ sempre crearlo da te seguendo le istruzioni in fondo.
 - Una pagina di analisi che calcola la correlazione tra il livello di ogni
   polline e quanto sono stati forti i sintomi, mette in classifica i pollini
   più sospetti e indica i sintomi che pesano di più.
+- Pulsante per **precompilare alcuni pollini** scaricandoli dalle previsioni
+  gratuite di Open-Meteo, così non li devi cercare a mano (vedi sotto).
 - I dati restano in un file sul disco (SQLite) che puoi copiare per fare un
   backup e portare su un altro PC.
 
@@ -100,6 +102,24 @@ Dopo qualche minuto, nella pagina Releases comparirà la nuova versione con
 compilazione a mano dalla scheda **Actions** del repo (pulsante *Run workflow*):
 in quel caso l'`.exe` si scarica dagli *Artifacts* della run.
 
+## Precompilare i pollini da Open-Meteo
+
+Nella schermata del giorno c'è il pulsante **"🌍 Precompila da Open-Meteo"**.
+La prima volta ti chiede la città (la salva, così non te la richiede più; puoi
+cambiarla quando vuoi col pulsante **"📍 Città"**), poi scarica le previsioni
+pollini per quel giorno e imposta da solo i livelli.
+
+Va detto chiaramente cosa copre: le fonti automatiche gratuite danno solo
+**cinque** dei pollini della lista — **betulla, graminacee, assenzio, olivo e
+ambrosia**. Tutti gli altri restano da inserire a mano, perché nessun servizio
+gratuito li fornisce per le singole specie. I valori (granuli/m³, media del
+giorno) vengono convertiti in Assente/Basso/Medio/Alto con soglie indicative per
+famiglia, che puoi ritoccare in `pollen_app/openmeteo.py` se vuoi.
+
+Serve la connessione a Internet solo nel momento in cui premi il pulsante; per
+il resto l'app funziona offline. Non richiede chiavi o registrazioni e usa solo
+moduli standard di Python.
+
 ## Dove finiscono i dati
 
 Tutto sta in un unico file:
@@ -137,6 +157,7 @@ pollen-symptoms-calculator/
     ├── theme.py             # colori e font
     ├── dates_it.py          # nomi di mesi e giorni in italiano
     ├── db.py                # lettura/scrittura su SQLite
+    ├── openmeteo.py         # scarico pollini da Open-Meteo
     ├── analysis.py          # calcolo correlazioni e suggerimenti
     └── ui/
         ├── calendar_view.py # il calendario

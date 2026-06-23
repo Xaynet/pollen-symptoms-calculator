@@ -58,7 +58,26 @@ class Database:
                 PRIMARY KEY (date, symptom),
                 FOREIGN KEY (date) REFERENCES days(date) ON DELETE CASCADE
             );
+
+            CREATE TABLE IF NOT EXISTS settings (
+                key   TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            );
             """
+        )
+        self.conn.commit()
+
+    # --- Impostazioni (coppie chiave/valore) ---------------------------------
+    def get_setting(self, key: str, default: str | None = None) -> str | None:
+        cur = self.conn.execute("SELECT value FROM settings WHERE key = ?", (key,))
+        row = cur.fetchone()
+        return row[0] if row else default
+
+    def set_setting(self, key: str, value: str) -> None:
+        self.conn.execute(
+            "INSERT INTO settings(key, value) VALUES(?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            (key, value),
         )
         self.conn.commit()
 
